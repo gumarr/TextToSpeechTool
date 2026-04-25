@@ -1,0 +1,10 @@
+// tsconfig.json — root config that references the two sub-configs
+// electron-vite expects separate tsconfig files for node (main/preload)
+// and browser (renderer) contexts so each gets correct lib typings.
+{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.node.json" },  // Electron main + preload
+    { "path": "./tsconfig.app.json" }    // React renderer
+  ]
+}

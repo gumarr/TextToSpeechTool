@@ -1,0 +1,22 @@
+// tsconfig.node.json — TypeScript config for Electron main process + preload
+// Uses "node" library typings, NOT browser DOM typings.
+{
+  "compilerOptions": {
+    "composite": true,           // required for project references
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "target": "ES2022",          // Electron 28 supports modern JS natively
+    "lib": ["ES2022"],           // Node context — no DOM here
+    "types": ["node"],           // node types for fs, path, child_process, etc.
+    "outDir": "dist-electron",
+    "rootDir": "."
+  },
+  "include": [
+    "electron/**/*.ts",
+    "vite.config.ts",
+    "electron-builder.config.js"
+  ]
+}

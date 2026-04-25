@@ -1,0 +1,211 @@
+/* src/index.css — Global design system for PDF Reader Pro
+ *
+ * Structure:
+ *  1. Tailwind directives
+ *  2. CSS custom properties (design tokens)
+ *  3. Base / reset styles
+ *  4. Layout primitives (app-shell, app-body, app-main)
+ *  5. Scrollbar styling
+ */
+
+/* ── 1. Tailwind ──────────────────────────────────────────────────────────── */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── 2. Design tokens ─────────────────────────────────────────────────────── */
+:root {
+  /* Color palette */
+  --color-bg-base: #0d0d0f;
+  --color-bg-surface: #16181d;
+  --color-bg-elevated: #1e2028;
+  --color-bg-hover: #252830;
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Accent — indigo/violet gradient */
+  --color-accent-start: #6366f1;
+  --color-accent-end: #8b5cf6;
+  --color-accent: #6366f1;
+  --color-accent-hover: #818cf8;
+
+  /* Text */
+  --color-text-primary: #f1f2f6;
+  --color-text-secondary: #8b8fa8;
+  --color-text-muted: #4b4f63;
+
+  /* Status */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+
+  /* Sizing */
+  --sidebar-width: 260px;
+  --titlebar-height: 38px;
+  --tts-bar-height: 72px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+
+  /* Transitions */
+  --transition-fast: 120ms ease;
+  --transition-base: 200ms ease;
+
+  /* Typography */
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+/* ── 3. Base styles ───────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;  /* No body scroll — we manage scroll in individual panels */
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-base);
+  -webkit-font-smoothing: antialiased;
+  user-select: none; /* Prevents accidental text selection on drag */
+}
+
+/* Allow text selection inside the PDF viewer and text panels */
+.selectable {
+  user-select: text;
+}
+
+/* ── 4. Layout primitives ─────────────────────────────────────────────────── */
+
+/* Full-height flex column: titlebar → body */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-base);
+}
+
+/* Custom titlebar drag region */
+.app-titlebar {
+  height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border);
+  /* Makes the whole bar draggable for the frameless window */
+  -webkit-app-region: drag;
+  flex-shrink: 0;
+}
+
+/* Buttons INSIDE the titlebar must opt out of dragging */
+.app-titlebar button,
+.app-titlebar a {
+  -webkit-app-region: no-drag;
+}
+
+/* Horizontal flex row: sidebar | main */
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Left sidebar panel */
+.app-sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  background: var(--color-bg-surface);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Main content area */
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* PDF canvas area — scrollable */
+.pdf-viewport {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px;
+  background: var(--color-bg-base);
+}
+
+/* TTS bottom bar */
+.tts-bar {
+  height: var(--tts-bar-height);
+  flex-shrink: 0;
+  background: var(--color-bg-surface);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 16px;
+}
+
+/* ── 5. Scrollbar ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* ── 6. Common component tokens (used via @apply in component CSS) ─────────── */
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm
+           bg-indigo-500 text-white hover:bg-indigo-400
+           transition-colors duration-150 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm
+           text-[--color-text-secondary] hover:text-[--color-text-primary]
+           hover:bg-[--color-bg-hover] transition-colors duration-150;
+  }
+
+  .input-base {
+    @apply w-full rounded-lg bg-[--color-bg-elevated] border border-[--color-border]
+           text-[--color-text-primary] text-sm px-3 py-2
+           focus:outline-none focus:border-indigo-500 transition-colors duration-150;
+  }
+
+  .panel-label {
+    @apply text-[11px] font-semibold uppercase tracking-widest text-[--color-text-muted]
+           px-4 py-2;
+  }
+}
