@@ -10,6 +10,7 @@
 
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
+import type { WordBoundary } from "./apiClient";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -72,6 +73,16 @@ interface AppState {
   setTtsRate: (rate: string) => void;
   setTtsVolume: (vol: string) => void;
   setIsSpeaking: (speaking: boolean) => void;
+
+  // ── Word boundary sync ──────────────────────────────────────────────────
+  wordBoundaries: WordBoundary[];
+  currentPageText: string;
+  currentTimeMs: number;
+  activeWordIndex: number;
+  setWordBoundaries: (wb: WordBoundary[]) => void;
+  setCurrentPageText: (text: string) => void;
+  setCurrentTimeMs: (ms: number) => void;
+  setActiveWordIndex: (idx: number) => void;
 }
 
 // ── Store implementation ──────────────────────────────────────────────────
@@ -142,6 +153,16 @@ export const useAppStore = create<AppState>()(
       setTtsVolume: (vol) => set({ ttsVolume: vol }, false, "setTtsVolume"),
       setIsSpeaking: (speaking) =>
         set({ isSpeaking: speaking }, false, "setIsSpeaking"),
+
+      // ── Word boundary sync ──────────────────────────────────────────
+      wordBoundaries: [],
+      currentPageText: "",
+      currentTimeMs: 0,
+      activeWordIndex: -1,
+      setWordBoundaries: (wb) => set({ wordBoundaries: wb }, false, "setWordBoundaries"),
+      setCurrentPageText: (text) => set({ currentPageText: text }, false, "setCurrentPageText"),
+      setCurrentTimeMs: (ms) => set({ currentTimeMs: ms }, false, "setCurrentTimeMs"),
+      setActiveWordIndex: (idx) => set({ activeWordIndex: idx }, false, "setActiveWordIndex"),
     }),
     { name: "PDFReaderProStore" } // name shown in Redux DevTools
   )

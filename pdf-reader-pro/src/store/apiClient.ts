@@ -175,3 +175,90 @@ export async function saveTts(
   );
   return { saved: raw.saved, sizeBytes: raw.size_bytes };
 }
+
+// ── TTS Timing API ────────────────────────────────────────────────────────
+
+export interface WordBoundary {
+  word: string;
+  offset_ms: number;
+  duration_ms: number;
+  start_ms: number;   // same as offset_ms
+  end_ms: number;     // offset_ms + duration_ms
+  char_start: number; // position in the full text string
+  char_end: number;
+}
+
+/**
+ * Calls POST /tts/synthesize/timing and enriches each word with char_start / char_end
+ * by scanning the original text sequentially, tolerating punctuation attached to words.
+ */
+export async function getTtsTimingWithCharIndex(
+  text: string,
+  voice: string,
+  rate: string,
+  volume: string
+): Promise<WordBoundary[]> {
+  const baseUrl = useAppStore.getState().apiBaseUrl;
+  if (!baseUrl) throw new Error("Python backend is not ready yet");
+
+  const res = await fetch(`${baseUrl}/tts/synthesize/timing`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice, rate, volume }),
+  });
+
+  if (!res.ok) throw new Error(`TTS timing error ${res.status}`);
+
+  const data = await res.json() as {
+    words: { offset_ms: number; duration_ms: number; text: string }[];
+    voice: string;
+  };
+
+  // Map each timing word back to its position in the original text string.
+  // We use a cursor that advances monotonically, stripping leading punctuation/spaces
+  // until the word's core characters match.
+  let cursor = 0;
+  const lowerText = text.toLowerCase();
+
+  return data.words.map((w) => {
+    const rawWord = w.text;
+    // Strip punctuation from both ends to find the "core" match token.
+    const coreWord = rawWord.replace(/^[^\w]+|[^\w]+$/g, "").toLowerCase();
+
+    // Advance cursor past whitespace/punctuation until we find the core word.
+    let matchStart = -1;
+    let matchEnd = -1;
+
+    for (let i = cursor; i < lowerText.length; i++) {
+      if (coreWord.length === 0) {
+        // Degenerate: pure-punctuation word — skip one char
+        matchStart = i;
+        matchEnd = i + 1;
+        cursor = matchEnd;
+        break;
+      }
+      if (lowerText.startsWith(coreWord, i)) {
+        matchStart = i;
+        matchEnd = i + coreWord.length;
+        cursor = matchEnd;
+        break;
+      }
+    }
+
+    // If we couldn't find the word (edge case), place it at cursor
+    if (matchStart === -1) {
+      matchStart = cursor;
+      matchEnd = cursor;
+    }
+
+    return {
+      word: rawWord,
+      offset_ms: w.offset_ms,
+      duration_ms: w.duration_ms,
+      start_ms: w.offset_ms,
+      end_ms: w.offset_ms + w.duration_ms,
+      char_start: matchStart,
+      char_end: matchEnd,
+    };
+  });
+}

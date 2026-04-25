@@ -8,14 +8,27 @@
  *  - Save audio button
  *
  * Audio is streamed from the Python backend and played via a hidden <audio> element.
+ * Word-boundary timing data is fetched in parallel with the audio stream so
+ * highlighting is ready the moment playback starts.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import type { MutableRefObject } from "react";
 import { useAppStore } from "../store/appStore";
-import { listVoices, getPageText, streamTts, saveTts } from "../store/apiClient";
-import clsx from "clsx";
+import {
+  listVoices,
+  getPageText,
+  streamTts,
+  saveTts,
+  getTtsTimingWithCharIndex,
+} from "../store/apiClient";
 
-export function TtsControls() {
+interface TtsControlsProps {
+  /** Lifted-up audio ref shared with App so SubtitleDisplay can seek */
+  audioRef: MutableRefObject<HTMLAudioElement | null>;
+}
+
+export function TtsControls({ audioRef }: TtsControlsProps) {
   const {
     document: pdf,
     currentPage,
@@ -29,13 +42,15 @@ export function TtsControls() {
     setTtsRate,
     setTtsVolume,
     setIsSpeaking,
+    setWordBoundaries,
+    setCurrentPageText,
+    setCurrentTimeMs,
     pythonPort,
   } = useAppStore();
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const rafRef = useRef<number>(0);
 
-  // ── Load voices on mount ──────────────────────────────────────────────
+  // ── Load voices on mount ──────────────────────────────────────────────────
   useEffect(() => {
     if (!pythonPort || ttsVoices.length > 0) return;
     listVoices()
@@ -43,38 +58,62 @@ export function TtsControls() {
       .catch((err) => console.error("Failed to load voices:", err));
   }, [pythonPort, ttsVoices.length, setTtsVoices]);
 
-  // ── Cleanup audio on unmount ──────────────────────────────────────────
+  // ── Cleanup audio + rAF on unmount ────────────────────────────────────────
   useEffect(() => {
     return () => {
+      cancelAnimationFrame(rafRef.current);
       audioRef.current?.pause();
     };
-  }, []);
+  }, [audioRef]);
 
-  // ── Speak current page ────────────────────────────────────────────────
+  // ── rAF loop: update currentTimeMs from audio.currentTime ────────────────
+  const startRafLoop = useCallback(
+    (audio: HTMLAudioElement) => {
+      const tick = () => {
+        if (!audio.paused && !audio.ended) {
+          setCurrentTimeMs(audio.currentTime * 1000);
+          rafRef.current = requestAnimationFrame(tick);
+        }
+      };
+      rafRef.current = requestAnimationFrame(tick);
+    },
+    [setCurrentTimeMs]
+  );
+
+  // ── Speak current page ────────────────────────────────────────────────────
   const handleSpeak = useCallback(async () => {
     if (!pdf || isSpeaking) return;
 
     try {
+      // 1. Get page text
       const pageText = await getPageText(pdf.filePath, currentPage);
       if (!pageText.text) return;
 
-      // Stop any previous audio
+      setCurrentPageText(pageText.text);
+
+      // Stop any previous audio + cancel previous rAF
       if (audioRef.current) {
+        cancelAnimationFrame(rafRef.current);
         audioRef.current.pause();
         URL.revokeObjectURL(audioRef.current.src);
+        audioRef.current = null;
       }
 
+      // Reset timing display
+      setWordBoundaries([]);
+      setCurrentTimeMs(0);
       setIsSpeaking(true);
 
-      // Stream audio from backend
-      const response = await streamTts(
-        pageText.text,
-        selectedVoice,
-        ttsRate,
-        ttsVolume
-      );
+      // 2 & 3. Fetch timing data and audio stream IN PARALLEL
+      const [wordBoundaries, response] = await Promise.all([
+        getTtsTimingWithCharIndex(pageText.text, selectedVoice, ttsRate, ttsVolume),
+        streamTts(pageText.text, selectedVoice, ttsRate, ttsVolume),
+      ]);
 
-      // Convert streaming response to Blob URL for <audio>
+      // Store word boundaries (now ready before audio starts)
+      setWordBoundaries(wordBoundaries);
+
+      // 4. Convert streaming response to Blob URL for <audio>
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
 
@@ -82,30 +121,48 @@ export function TtsControls() {
       audioRef.current = audio;
 
       audio.onended = () => {
+        cancelAnimationFrame(rafRef.current);
         setIsSpeaking(false);
         URL.revokeObjectURL(url);
       };
 
       audio.onerror = () => {
+        cancelAnimationFrame(rafRef.current);
         setIsSpeaking(false);
         URL.revokeObjectURL(url);
         console.error("Audio playback error");
       };
 
+      // 5. Start playback + rAF loop
       await audio.play();
+      startRafLoop(audio);
     } catch (err) {
       console.error("TTS error:", err);
       setIsSpeaking(false);
     }
-  }, [pdf, currentPage, isSpeaking, selectedVoice, ttsRate, ttsVolume, setIsSpeaking]);
+  }, [
+    pdf,
+    currentPage,
+    isSpeaking,
+    selectedVoice,
+    ttsRate,
+    ttsVolume,
+    audioRef,
+    setIsSpeaking,
+    setWordBoundaries,
+    setCurrentPageText,
+    setCurrentTimeMs,
+    startRafLoop,
+  ]);
 
-  // ── Stop speaking ─────────────────────────────────────────────────────
+  // ── Stop speaking ─────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
+    cancelAnimationFrame(rafRef.current);
     audioRef.current?.pause();
     setIsSpeaking(false);
-  }, [setIsSpeaking]);
+  }, [audioRef, setIsSpeaking]);
 
-  // ── Save audio to file ────────────────────────────────────────────────
+  // ── Save audio to file ────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!pdf) return;
 
