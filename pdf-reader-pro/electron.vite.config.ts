@@ -23,8 +23,8 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: {
-          // Points to our TypeScript main entry
-          index: resolve(__dirname, "electron/main.ts"),
+          // Key 'main' → output file dist-electron/main.js (matches package.json "main" field)
+          main: resolve(__dirname, "electron/main.ts"),
         },
       },
       // Output compiled main process to dist-electron/

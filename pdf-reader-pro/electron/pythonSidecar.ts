@@ -14,6 +14,7 @@ import { ChildProcess, spawn } from "child_process";
 import { app } from "electron";
 import { join } from "path";
 import { EventEmitter } from "events";
+import { existsSync } from "fs";
 
 // ── Constants ─────────────────────────────────────────────────────────────
 const STARTUP_TIMEOUT_MS = 30_000; // 30 s — fail if Python doesn't report ready
@@ -48,8 +49,21 @@ export class PythonSidecar extends EventEmitter {
       // For now fall through to system Python with the bundled script
       return process.platform === "win32" ? "python" : "python3";
     }
-    // Development: system Python
-    return process.platform === "win32" ? "python" : "python3";
+    // Development: check for local .venv
+    const isWin = process.platform === "win32";
+    const venvPython = join(
+      app.getAppPath(),
+      "python",
+      ".venv",
+      isWin ? "Scripts" : "bin",
+      isWin ? "python.exe" : "python"
+    );
+    
+    if (existsSync(venvPython)) {
+      return venvPython;
+    }
+
+    return isWin ? "python" : "python3";
   }
 
   /**
@@ -61,8 +75,10 @@ export class PythonSidecar extends EventEmitter {
     if (app.isPackaged) {
       return join(process.resourcesPath, "python", "main.py");
     }
-    // __dirname is dist-electron/ at runtime; go up to repo root
-    return join(__dirname, "../../python/main.py");
+    // app.getAppPath() returns the project root (where package.json lives)
+    // regardless of where __dirname resolves to at runtime.
+    // e.g. D:\Project\TextToSpeechTool\pdf-reader-pro\python\main.py
+    return join(app.getAppPath(), "python", "main.py");
   }
 
   /**
