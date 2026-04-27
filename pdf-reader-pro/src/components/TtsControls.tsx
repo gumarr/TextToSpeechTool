@@ -49,6 +49,8 @@ export function TtsControls({ audioRef }: TtsControlsProps) {
   } = useAppStore();
 
   const rafRef = useRef<number>(0);
+  // Closure flag so rAF loop can be stopped immediately without a stale ref race
+  const stopSignalRef = useRef<{ stopped: boolean }>({ stopped: false });
 
   // ── Load voices on mount ──────────────────────────────────────────────────
   useEffect(() => {
@@ -68,10 +70,11 @@ export function TtsControls({ audioRef }: TtsControlsProps) {
 
   // ── rAF loop: update currentTimeMs from audio.currentTime ────────────────
   const startRafLoop = useCallback(
-    (audio: HTMLAudioElement) => {
+    (audio: HTMLAudioElement, stopSignal: { stopped: boolean }) => {
       const tick = () => {
-        if (!audio.paused && !audio.ended) {
-          setCurrentTimeMs(audio.currentTime * 1000);
+        if (stopSignal.stopped) return;
+        setCurrentTimeMs(audio.currentTime * 1000);
+        if (!audio.ended) {
           rafRef.current = requestAnimationFrame(tick);
         }
       };
@@ -93,6 +96,7 @@ export function TtsControls({ audioRef }: TtsControlsProps) {
 
       // Stop any previous audio + cancel previous rAF
       if (audioRef.current) {
+        stopSignalRef.current.stopped = true;
         cancelAnimationFrame(rafRef.current);
         audioRef.current.pause();
         URL.revokeObjectURL(audioRef.current.src);
@@ -121,12 +125,14 @@ export function TtsControls({ audioRef }: TtsControlsProps) {
       audioRef.current = audio;
 
       audio.onended = () => {
+        stopSignalRef.current.stopped = true;
         cancelAnimationFrame(rafRef.current);
         setIsSpeaking(false);
         URL.revokeObjectURL(url);
       };
 
       audio.onerror = () => {
+        stopSignalRef.current.stopped = true;
         cancelAnimationFrame(rafRef.current);
         setIsSpeaking(false);
         URL.revokeObjectURL(url);
@@ -134,8 +140,10 @@ export function TtsControls({ audioRef }: TtsControlsProps) {
       };
 
       // 5. Start playback + rAF loop
+      // Reset stop signal before starting new loop
+      stopSignalRef.current = { stopped: false };
       await audio.play();
-      startRafLoop(audio);
+      startRafLoop(audio, stopSignalRef.current);
     } catch (err) {
       console.error("TTS error:", err);
       setIsSpeaking(false);
@@ -157,6 +165,7 @@ export function TtsControls({ audioRef }: TtsControlsProps) {
 
   // ── Stop speaking ─────────────────────────────────────────────────────────
   const handleStop = useCallback(() => {
+    stopSignalRef.current.stopped = true;
     cancelAnimationFrame(rafRef.current);
     audioRef.current?.pause();
     setIsSpeaking(false);

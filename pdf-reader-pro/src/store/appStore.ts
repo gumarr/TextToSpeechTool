@@ -161,8 +161,9 @@ export const useAppStore = create<AppState>()(
       activeWordIndex: -1,
       setWordBoundaries: (wb) => set({ wordBoundaries: wb }, false, "setWordBoundaries"),
       setCurrentPageText: (text) => set({ currentPageText: text }, false, "setCurrentPageText"),
-      setCurrentTimeMs: (ms) => set({ currentTimeMs: ms }, false, "setCurrentTimeMs"),
-      setActiveWordIndex: (idx) => set({ activeWordIndex: idx }, false, "setActiveWordIndex"),
+      // Skip devtools action name to avoid serialization overhead in the 60fps rAF loop
+      setCurrentTimeMs: (ms) => set({ currentTimeMs: ms }),
+      setActiveWordIndex: (idx) => set({ activeWordIndex: idx }),
     }),
     { name: "PDFReaderProStore" } // name shown in Redux DevTools
   )

@@ -221,18 +221,18 @@ body {
   min-height: 0; /* allows flex children to shrink below content height */
 }
 
-/* PDF viewer occupies the top 60% */
+/* PDF viewer — takes all remaining space */
 .content-split__pdf {
-  flex: 0 0 60%;
+  flex: 1;
   min-height: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
-/* Subtitle panel occupies the bottom 40% */
+/* Subtitle panel — fixed height so it never squishes the PDF */
 .content-split__subtitles {
-  flex: 0 0 40%;
+  flex: 0 0 260px;
   min-height: 0;
   overflow: hidden;
   display: flex;

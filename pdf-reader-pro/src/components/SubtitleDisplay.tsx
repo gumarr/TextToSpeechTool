@@ -3,20 +3,21 @@
  *
  * Real-time word-by-word subtitle panel.
  *
- * - Renders the full page text split into character-level spans.
- * - Words covered by a WordBoundary are wrapped in a clickable, highlightable span.
- * - Uses binary search (useMemo) to find the active word from currentTimeMs.
- * - Auto-scrolls the active word into view.
- * - Click on any word to seek playback to that position.
+ * Performance architecture:
+ *  - Segments (word spans) are rendered ONCE when wordBoundaries or text changes.
+ *  - Highlighting is applied via direct DOM classList manipulation (no re-render on each tick).
+ *  - Auto-scroll scrolls the CONTAINER div only, never the whole page.
+ *  - Binary search finds the active word in O(log n).
+ *  - Click on any word seeks playback to that word's start time.
  */
 
 import { useEffect, useMemo, useRef } from "react";
 import type { WordBoundary } from "../store/apiClient";
+import { useAppStore } from "../store/appStore";
 
 interface SubtitleDisplayProps {
   text: string;
   wordBoundaries: WordBoundary[];
-  currentTimeMs: number;
   onSeek: (ms: number) => void;
 }
 
@@ -39,7 +40,7 @@ function findActiveWordIndex(
     const w = boundaries[mid];
 
     if (currentTimeMs >= w.start_ms && currentTimeMs < w.end_ms) {
-      return mid; // playhead is inside this word's window
+      return mid;
     } else if (currentTimeMs < w.start_ms) {
       hi = mid - 1;
     } else {
@@ -47,7 +48,6 @@ function findActiveWordIndex(
     }
   }
 
-  // -1 when playhead is before the first word or between two words
   return -1;
 }
 
@@ -55,7 +55,7 @@ function findActiveWordIndex(
 interface TextSegment {
   type: "plain" | "word";
   content: string;
-  wordIndex?: number; // index into wordBoundaries (only when type === "word")
+  wordIndex?: number;
 }
 
 function buildSegments(
@@ -73,12 +73,10 @@ function buildSegments(
     const wb = wordBoundaries[i];
     const { char_start, char_end } = wb;
 
-    // Gap before this word
     if (char_start > cursor) {
       segments.push({ type: "plain", content: text.slice(cursor, char_start) });
     }
 
-    // The word itself
     if (char_end > char_start) {
       segments.push({
         type: "word",
@@ -90,7 +88,6 @@ function buildSegments(
     cursor = char_end;
   }
 
-  // Trailing plain text after the last word
   if (cursor < text.length) {
     segments.push({ type: "plain", content: text.slice(cursor) });
   }
@@ -102,37 +99,71 @@ function buildSegments(
 export function SubtitleDisplay({
   text,
   wordBoundaries,
-  currentTimeMs,
   onSeek,
 }: SubtitleDisplayProps) {
+  // Refs to word span DOM nodes — populated during render
   const wordSpanRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  // Ref to the scrollable container — scroll THIS, not the window
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // Track previous active index to reset CSS without iterating all words
+  const prevActiveIdxRef = useRef<number>(-1);
 
-  // Active word via binary search — O(log n), safe to run every rAF tick
-  const activeIdx = useMemo(
-    () => findActiveWordIndex(wordBoundaries, currentTimeMs),
-    [wordBoundaries, currentTimeMs]
-  );
-
-  // Build render plan whenever text or boundaries change
+  // Segments are rebuilt only when text or boundaries change (NOT every frame)
   const segments = useMemo(
     () => buildSegments(text, wordBoundaries),
     [text, wordBoundaries]
   );
 
-  // Reset refs array length whenever word boundaries change
+  // Reset refs when word count changes
   useEffect(() => {
     wordSpanRefs.current = new Array(wordBoundaries.length).fill(null);
+    prevActiveIdxRef.current = -1;
   }, [wordBoundaries.length]);
 
-  // Auto-scroll active word into view
+  // ── Highlight & Scroll via direct DOM mutation & Zustand subscribe ─────────
+  // This completely bypasses React's re-render cycle for 60fps playback.
   useEffect(() => {
-    if (activeIdx >= 0 && wordSpanRefs.current[activeIdx]) {
-      wordSpanRefs.current[activeIdx]?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
-    }
-  }, [activeIdx]);
+    const unsub = useAppStore.subscribe((state) => {
+      const currentTimeMs = state.currentTimeMs;
+      const activeIdx = findActiveWordIndex(wordBoundaries, currentTimeMs);
+
+      if (activeIdx !== prevActiveIdxRef.current) {
+        const spans = wordSpanRefs.current;
+        
+        // Update classes across all spans to handle forward/backward seek reliably
+        for (let i = 0; i < spans.length; i++) {
+          const span = spans[i];
+          if (!span) continue;
+          if (i < activeIdx) {
+            span.classList.add("word-past");
+            span.classList.remove("word-active");
+          } else if (i === activeIdx) {
+            span.classList.add("word-active");
+            span.classList.remove("word-past");
+          } else {
+            span.classList.remove("word-past", "word-active");
+          }
+        }
+        
+        // Auto-scroll
+        const span = activeIdx >= 0 ? spans[activeIdx] : null;
+        const container = containerRef.current;
+        if (span && container) {
+          const containerTop = container.getBoundingClientRect().top;
+          const spanTop = span.getBoundingClientRect().top;
+          const spanCenter = spanTop - containerTop + span.offsetHeight / 2;
+          const containerCenter = container.clientHeight / 2;
+          const targetScrollTop = container.scrollTop + spanCenter - containerCenter;
+
+          container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+        }
+
+        prevActiveIdxRef.current = activeIdx;
+      }
+    });
+
+    return unsub;
+  }, [wordBoundaries]);
 
   // ── Fallback: no boundaries yet ─────────────────────────────────────────
   if (wordBoundaries.length === 0) {
@@ -149,10 +180,14 @@ export function SubtitleDisplay({
     );
   }
 
-  // ── Main render ──────────────────────────────────────────────────────────
+  // ── Main render — only re-renders when text/boundaries change ─────────────
   return (
-    <div className="subtitle-container selectable">
-      <div className="subtitle-text" aria-live="polite" aria-label="Page text with word highlighting">
+    <div className="subtitle-container selectable" ref={containerRef}>
+      <div
+        className="subtitle-text"
+        aria-live="polite"
+        aria-label="Page text with word highlighting"
+      >
         {segments.map((seg, segIdx) => {
           if (seg.type === "plain") {
             return (
@@ -162,16 +197,8 @@ export function SubtitleDisplay({
             );
           }
 
-          // Word segment
           const wIdx = seg.wordIndex!;
           const wb = wordBoundaries[wIdx];
-          const isActive = wIdx === activeIdx;
-          // A word is "past" if the audio has moved beyond its end
-          const isPast = wb.end_ms < currentTimeMs && !isActive;
-
-          let cls = "word-span";
-          if (isActive) cls += " word-active";
-          else if (isPast) cls += " word-past";
 
           return (
             <span
@@ -179,7 +206,7 @@ export function SubtitleDisplay({
               ref={(el) => {
                 wordSpanRefs.current[wIdx] = el;
               }}
-              className={cls}
+              className="word-span"
               data-word-index={wIdx}
               title={`Seek to ${(wb.start_ms / 1000).toFixed(2)}s`}
               onClick={() => onSeek(wb.start_ms)}

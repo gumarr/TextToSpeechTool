@@ -18,7 +18,7 @@ import { CrashBanner } from "./components/CrashBanner";
 import { SubtitleDisplay } from "./components/SubtitleDisplay";
 
 export default function App() {
-  const { setPythonPort, setPythonCrashed, wordBoundaries, currentPageText, currentTimeMs, setCurrentTimeMs } =
+  const { setPythonPort, setPythonCrashed, wordBoundaries, currentPageText, setCurrentTimeMs } =
     useAppStore();
 
   // Lifted-up audio ref: shared between TtsControls (plays audio) and the seek handler
@@ -87,7 +87,6 @@ export default function App() {
                 <SubtitleDisplay
                   text={currentPageText}
                   wordBoundaries={wordBoundaries}
-                  currentTimeMs={currentTimeMs}
                   onSeek={handleSeek}
                 />
               </div>
